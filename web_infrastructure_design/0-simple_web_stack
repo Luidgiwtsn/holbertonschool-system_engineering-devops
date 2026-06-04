@@ -1,0 +1,71 @@
+# 0. Simple Web Stack Infrastructure
+
+This document describes a simple, one-server web infrastructure designed to host a website reachable via `www.foobar.com`.
+
+---
+
+##  Whiteboard Architecture Diagram
+
+```text
+[ User Computer ]
+       |
+       | 1. Requests [www.foobar.com](https://www.foobar.com)
+       v
+  [ DNS Server ] (Resolves [www.foobar.com](https://www.foobar.com) to 8.8.8.8)
+       |
+       | 2. Connects via HTTP/HTTPS (Port 80/443)
+       v
++-----------------------------------------------------------------------+
+| SERVER (IP: 8.8.8.8)                                                  |
+|                                                                       |
+|   [ Web Server: Nginx ]                                               |
+|          |                                                            |
+|          | 3. Forwards dynamic requests                               |
+|          v                                                            |
+|   [ Application Server ] <---> [ Application Files (Codebase) ]       |
+|          |                                                            |
+|          | 4. Queries data                                            |
+|          v                                                            |
+|   [ Database: MySQL ]                                                 |
+|                                                                       |
++-----------------------------------------------------------------------+
+
+The Request Workflow
+
+    User Request: The user types www.foobar.com into their web browser.
+
+    DNS Resolution: The computer queries a DNS server to translate the domain name into an IP address. The DNS server returns the IP address 8.8.8.8 based on the A record configured for www.
+
+    Connecting to the Server: The user's browser sends an HTTP/HTTPS request over the Internet to the server's IP address (8.8.8.8) on port 80 or 443.
+
+    Web Server Processing: Nginx receives the request. If the request is for a static asset (like an image or CSS file), Nginx serves it directly. If it is dynamic, Nginx acts as a reverse proxy and passes it to the Application Server.
+
+    Application Execution: The Application Server executes the backend source code located in the Application Files. If it needs to store or retrieve data, it communicates with the MySQL Database.
+
+    Response Delivery: The application builds the final HTML page, sends it back to Nginx, and Nginx delivers it to the user's browser over the network.
+
+ Infrastructure Specifics Explained
+
+    What is a server? A server is a physical computer or virtual machine that remains powered on 24/7, connected to the internet, dedicated to hosting software components and serving resources (like websites or APIs) to client devices.
+
+    What is the role of the domain name? A domain name (foobar.com) provides a human-readable, memorable address for a website, preventing users from needing to remember complex numerical IP addresses like 8.8.8.8.
+
+    What type of DNS record www is in www.foobar.com? The www subdomain record is configured as an A record (pointing directly to the IPv4 address 8.8.8.8) or as a CNAME record (an alias pointing to the root domain foobar.com).
+
+    What is the role of the web server? The web server (Nginx) is the entry point for network traffic. It handles incoming HTTP/HTTPS connections, manages security certificates, serves static content quickly, and routes dynamic traffic to the backend.
+
+    What is the role of the application server? The application server is the runtime engine that interprets, executes, and processes the dynamic backend code (e.g., PHP, Python, or Node.js) to generate customized web pages.
+
+    What is the role of the database? The database (MySQL) is a structured storage management system used to securely save, organize, and retrieve persistent application data, such as user profiles, posts, or product information.
+
+    What is the server using to communicate with the user's computer? The server uses the HTTP/HTTPS application protocols, which are built on top of the TCP/IP network protocol suite. Communication occurs through port 80 (HTTP) or port 443 (HTTPS).
+
+ Infrastructure Limitations and Issues
+
+While simple, hosting an entire web stack on a single server introduces severe production challenges:
+
+    SPOF (Single Point of Failure): Since the web server, application server, codebase, and database all share the exact same hardware and operating system, any hardware crash, network outage, or system failure will take the entire website offline immediately. There is no redundancy.
+
+    Downtime during maintenance: When deploying updates to the code, upgrading the database, or modifying Nginx configuration files, services often need to be restarted. During these intervals, the application is temporarily unavailable to users, resulting in unavoidable downtime.
+
+    Scalability limits (Inability to Scale): This setup is restricted to Vertical Scaling (adding more CPU, RAM, or storage to the existing machine). However, a single physical server has definitive performance ceilings. It cannot scale Horizontally because the architecture is not designed to distribute the incoming traffic load across multiple servers.
