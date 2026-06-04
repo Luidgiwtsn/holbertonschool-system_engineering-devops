@@ -1,0 +1,78 @@
+[ Client / Web Browser ]
+                             │
+                             ▼
+               ┌───────────────────────────┐
+               │    Server 1: LB Node      │
+               │  - HAproxy Load Balancer  │
+               └─────────────┬─────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              ▼                             ▼
+┌───────────────────────────┐ ┌───────────────────────────┐
+│     Server 2: App Node 1  │ │     Server 3: App Node 2  │
+│ - Nginx (Web Server)      │ │ - Nginx (Web Server)      │
+│ - Application Server      │ │ - Application Server      │
+│ - Code Base (App Files)   │ │ - Code Base (App Files)   │
+│ - MySQL (Primary / Master)│ │ - MySQL (Replica / Slave) │
+└─────────────┬─────────────┘ └─────────────▲─────────────┘
+              │                             │
+              └────── Data Replication ─────┘
+                    (Asynchronous Sync)
+
+2. Infrastructure Explanations
+Why each element is added
+
+    HAproxy Load Balancer: Acts as a reverse proxy and single point of entry. It distributes incoming traffic across multiple servers to prevent any single server from being overwhelmed, improving availability and redundancy.
+
+    Nginx (Web Server): Handles public-facing HTTP requests. It is highly efficient at serving static files (CSS, JS, images) and acts as a reverse proxy passing dynamic requests to the application server.
+
+    Application Server: Executes the actual server-side logic (e.g., PHP, Python, Node.js) and interacts with the database to generate dynamic content.
+
+    Application Files (Code Base): The actual deployable source code of www.foobar.com required by both servers to run identical versions of the application.
+
+    MySQL Database: Stores the persistent relational data (users, posts, configurations) required by the web application.
+
+Load Balancer Algorithm
+
+The load balancer will be configured with the Round Robin algorithm.
+
+    How it works: It distributes client requests sequentially down the list of available backend servers. Request 1 goes to Server 2, Request 2 goes to Server 3, Request 3 goes back to Server 2, and so on. It assumes all backend servers have equal processing capacity.
+
+Load Balancer Setup: Active-Active vs. Active-Passive
+
+In this specific three-server architecture, the load balancer is enabling an Active-Active setup for the application servers, but the load balancer itself represents a standalone architecture.
+
+    Active-Active: Both backend application servers are simultaneously online, active, and receiving traffic from the load balancer. If one goes down, the other continues to handle traffic seamlessly.
+
+    Active-Passive: Only one server is actively handling traffic, while the second remains on standby (idle). The passive server only takes over if the active server fails.
+
+Database Primary-Replica (Master-Slave) Cluster
+
+To keep data synchronized between Server 2 and Server 3, we implement a MySQL Primary-Replica cluster.
+
+    How it works: The Primary database handles all data modifications. Whenever a change occurs, the Primary writes it to a local log (Binary Log). The Replica database constantly reads this log over the network and executes the same operations on its own data set, keeping it synchronized (usually asynchronously).
+
+Primary Node vs. Replica Node (Application Perspective)
+
+    Primary Node (Server 2): The application sends all Write operations (INSERT, UPDATE, DELETE) here. It is the single source of truth for changing data.
+
+    Replica Node (Server 3): The application sends Read operations (SELECT) here. It offloads read traffic from the primary node to improve overall performance, but the application cannot write data directly to it.
+
+3. Infrastructure Issues & Vulnerabilities
+
+While this is a functional distributed setup, it possesses several critical flaws:
+Single Points of Failure (SPOF)
+
+    The Load Balancer (Server 1): If Server 1 crashes, loses power, or suffers a network failure, the entire website goes offline instantly, despite having two perfectly functional application servers behind it.
+
+    The Primary Database (Server 2): If Server 2 fails, the application can no longer execute write operations. The Replica (Server 3) cannot automatically promote itself to Primary without additional clustering software (like Orchestrator or MHA).
+
+Security Issues
+
+    No HTTPS (Cleartext Traffic): Traffic between the client and HAproxy travels over unencrypted HTTP (Port 80). Sensitive data like passwords or credit cards can be easily intercepted via man-in-the-middle (MITM) attacks.
+
+    No Firewall: There is no packet filtering system (like UFW or iptables) restricting access. Anyone on the internet could attempt to connect directly to the MySQL databases (Port 3306) or Nginx backend ports, bypassing the load balancer entirely.
+
+Lack of Monitoring
+
+    No Visibility: There are no tools (such as Prometheus, Grafana, or Datadog) collecting system metrics (CPU, RAM, Disk I/O) or tracking application error rates. If the site slows down or crashes, the engineering team will have no data to diagnose why it happened or when it started.
