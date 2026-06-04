@@ -1,0 +1,112 @@
+[ Client / Web Browser ]
+                                   │
+                                   │ HTTPS (Port 443)
+                                   ▼
+               ┌───────────────────────────────────────┐
+               │         Server 1: LB Node             │
+               │  ┌─────────────────────────────────┐  │
+               │  │           Firewall 1            │  │
+               │  └────────────────┬────────────────┘  │
+               │                   ▼                   │
+               │  - HAproxy (SSL Termination / Cert)   │
+               │  - Monitoring Client (Data Collector) │
+               └───────────────────┬───────────────────┘
+                                   │
+                     HTTP (Port 80)│ (Internal Network)
+              ┌────────────────────┴────────────────────┐
+              ▼                                         ▼
+┌───────────────────────────────────────┐ ┌───────────────────────────────────────┐
+│         Server 2: App Node 1          │ │         Server 3: App Node 2          │
+│  ┌─────────────────────────────────┐  │ │  ┌─────────────────────────────────┐  │
+│  │           Firewall 2            │  │ │  │           Firewall 3            │  │
+│  └────────────────┬────────────────┘  │ │  └────────────────┬────────────────┘  │
+│                   ▼                   │ │                   ▼                   │
+│  - Nginx (Web Server)                 │ │ - Nginx (Web Server)                 │
+│  - Application Server                 │ │ - Application Server                 │
+│  - Code Base (App Files)              │ │ - Code Base (App Files)              │
+│  - MySQL (Primary / Master)           │ │ - MySQL (Replica / Slave)             │
+│  - Monitoring Client (Data Collector) │ │ - Monitoring Client (Data Collector) │
+└───────────────────┬───────────────────┘ └───────────────────▲───────────────────┘
+                    │                                         │
+                    └────────── Data Replication ─────────────┘
+Infrastructure Explanations
+Why each element is added
+
+    3 Firewalls: Added to isolate and secure each server individually, ensuring only legitimate, explicitly permitted traffic can cross the server boundaries.
+
+    1 SSL Certificate: Added to enable cryptographic encryption for the website, transforming connections from insecure http:// to secure https://www.foobar.com.
+
+    3 Monitoring Clients: Added to gather real-time performance metrics and logs from each individual machine and ship them to a central dashboard.
+
+What Firewalls Are For
+
+Firewalls act as security guards for your servers. They inspect incoming and outgoing network traffic based on a defined set of security rules. Their primary goal is to block unauthorized access. For example:
+
+    Server 1 (LB): Allows public traffic only on ports 80 (HTTP) and 443 (HTTPS).
+
+    Servers 2 & 3 (App Nodes): Block all public internet traffic entirely, allowing traffic only if it originates from the Load Balancer’s private IP address.
+
+Why Traffic is Served Over HTTPS
+
+Traffic is served over HTTPS to ensure Confidentiality, Integrity, and Authenticity:
+
+    Encryption (Confidentiality): It encrypts the data passing between the user's browser and the infrastructure, preventing attackers from eavesdropping on sensitive information (like passwords or session tokens).
+
+    Data Integrity: It prevents data from being subtly altered during transit by third parties (man-in-the-middle attacks).
+
+    Authentication: The SSL certificate proves to the browser that the user is actually visiting the real www.foobar.com and not a malicious clone.
+
+What Monitoring is Used For
+
+Monitoring gives visibility into the health and operational status of the infrastructure. It is used for:
+
+    Alerting: Notifying engineers immediately if a server goes down, runs out of memory, or experiences high error rates.
+
+    Troubleshooting: Analyzing historical logs and metric spikes to find the root cause of an outage or slow down.
+
+    Capacity Planning: Tracking long-term resource usage trends (e.g., storage growth) to predict when the infrastructure needs to be scaled up.
+
+How the Monitoring Tool Collects Data
+
+The monitoring clients (such as Sumo Logic Collector, Datadog Agent, or Prometheus Node Exporter) run as background processes (daemons) on each server. They collect data using two main methods:
+
+    System Metrics (Pull/Push): They query local system files (like /proc in Linux) to pull CPU, RAM, network, and disk performance statistics.
+
+    Log Tailing: They constantly read ("tail") local application logs, such as Nginx access logs (/var/log/nginx/access.log) or MySQL error logs, parse them into structured data, and securely stream them over HTTPS to the central monitoring service platform.
+
+How to Monitor Web Server QPS (Queries Per Second)
+
+To monitor QPS, you must capture and count the incoming HTTP requests processed by Nginx within a specific timeframe:
+
+    Ensure Nginx access logging is enabled.
+
+    Configure your monitoring client to parse the Nginx access.log file.
+
+    Every time a new line (request) is added to the log, the client records a timestamped event.
+
+    In your monitoring platform (e.g., Sumo Logic, Grafana), create a dashboard panel using a query that aggregates the total count of log lines divided by time buckets, yielding a real-time Queries Per Second (QPS) graph.
+
+3. Infrastructure Issues & Structural Vulnerabilities
+
+Despite being secured and monitored, this architecture still exhibits architectural bottlenecks:
+Issue 1: SSL Termination at the Load Balancer Level
+
+    The Problem: When HAProxy handles "SSL Termination," it decrypts the traffic at Server 1. The data travelling from the Load Balancer to the backend application servers (Servers 2 and 3) is sent as unencrypted, plain HTTP.
+
+    Why it's an issue: If an attacker manages to compromise or sniff traffic within the internal private network layer, they can steal unencrypted user sessions, credentials, and payload data with ease.
+
+Issue 2: Single MySQL Server Accepting Writes
+
+    The Problem: Only the Primary MySQL node (Server 2) can accept write commands.
+
+    Why it's an issue: This represents a major operational bottleneck and a Single Point of Failure (SPOF) for data modification. If Server 2 goes offline, your application becomes completely read-only. Users will not be able to register, log in, or update their data until the database tier is manually reconfigured or fixed.
+
+Issue 3: Servers Running All the Same Components (Mishmash Node Design)
+
+    The Problem: Combining Nginx, the Application runtime, and the MySQL engine together inside the exact same operating system on Servers 2 and 3.
+
+    Why it's an issue: * Resource Contention: MySQL is resource-heavy on RAM and disk I/O, while Nginx/App servers compete heavily for CPU. Under a traffic spike, these services will fight each other for the same system resources, causing the entire server to freeze or crash.
+
+        Scaling Limitations: You cannot scale them independently. If your application logic requires more CPU, you are forced to scale up the database as well, leading to inefficient resource spending.
+
+        Security Risk: If a vulnerability allows a hacker to exploit the web server, they instantly gain local access to the machine where the database data files are stored.
